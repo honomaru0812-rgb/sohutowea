@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>スケジュール管理アプリ</title>
+
+  <!-- Supabase -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- デザイン担当のCSS -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ============================
+       ログイン画面
+  ============================ -->
+  <div id="login-screen">
+    <div class="login-box">
+      <div style="font-size:40px; margin-bottom:8px">📅</div>
+      <h1>スケジュール管理</h1>
+      <p id="login-subtitle">ログインして予定を管理</p>
+
+      <div class="error-msg" id="error-msg"></div>
+      <div class="success-msg" id="success-msg"></div>
+
+      <div class="form-group">
+        <label>メールアドレス</label>
+        <input type="email" id="email-input" placeholder="you@example.com">
+      </div>
+
+      <div class="form-group">
+        <label>パスワード</label>
+        <input type="password" id="password-input" placeholder="6文字以上">
+      </div>
+
+      <button class="btn-primary" id="auth-btn">ログイン</button>
+
+      <p class="switch-text">
+        <span id="switch-msg">アカウントがない？</span>
+        <a id="switch-link">新規登録</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- ============================
+       アプリ画面
+  ============================ -->
+  <div id="app-screen">
+    <!-- ヘッダー -->
+    <div class="header">
+      <div class="header-left">📅 スケジュール</div>
+      <div class="header-right">
+        <!-- 検索バー（機能A が実装） -->
+        <input type="text" id="search-input" class="search-input" placeholder="予定を検索...">
+        <span class="user-email" id="display-email"></span>
+        <button class="btn-logout" id="logout-btn">ログアウト</button>
+      </div>
+    </div>
+
+    <!-- 表示切り替えタブ -->
+    <div class="view-tabs">
+      <button class="view-tab active" id="tab-calendar" data-view="calendar">カレンダー</button>
+      <button class="view-tab" id="tab-list" data-view="list">一覧</button>
+    </div>
+
+    <!-- カレンダー表示 -->
+    <div id="calendar-view">
+      <div class="cal-nav">
+        <button id="prev-btn">◀</button>
+        <h2 id="month-label"></h2>
+        <button id="next-btn">▶</button>
+        <button class="btn-today" id="today-btn">今日</button>
+      </div>
+
+      <div class="weekdays">
+        <div>月</div><div>火</div><div>水</div><div>木</div><div>金</div>
+        <div class="sat">土</div><div class="sun">日</div>
+      </div>
+
+      <div class="cal-grid" id="cal-grid"></div>
+    </div>
+
+    <!-- 一覧表示（機能A が実装） -->
+    <div id="list-view" style="display:none">
+      <div class="list-controls">
+        <select id="sort-select">
+          <option value="date-asc">日付（昇順）</option>
+          <option value="date-desc">日付（降順）</option>
+          <option value="title">タイトル順</option>
+          <option value="tag">タグ順</option>
+        </select>
+        <select id="filter-tag">
+          <option value="">すべてのタグ</option>
+        </select>
+      </div>
+      <div id="event-list" class="event-list"></div>
+    </div>
+  </div>
+
+  <!-- ============================
+       予定モーダル
+  ============================ -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h2 id="modal-title">予定を追加</h2>
+      <p class="modal-date" id="modal-date"></p>
+
+      <div class="form-group">
+        <label>タイトル</label>
+        <div class="input-with-mic">
+          <input type="text" id="event-title" placeholder="ミーティング、買い物など">
+          <!-- 音声入力ボタン（機能B が実装） -->
+          <button class="btn-mic" id="mic-btn" title="音声入力">🎤</button>
+        </div>
+      </div>
+
+      <div class="time-row">
+        <div class="form-group">
+          <label>開始</label>
+          <select id="start-h"></select>
+          <select id="start-m"></select>
+        </div>
+        <div class="form-group">
+          <label>終了</label>
+          <select id="end-h"></select>
+          <select id="end-m"></select>
+        </div>
+      </div>
+
+      <!-- タグ（機能A が実装） -->
+      <div class="form-group">
+        <label>タグ</label>
+        <select id="event-tag">
+          <option value="">なし</option>
+          <option value="仕事">🏢 仕事</option>
+          <option value="プライベート">🏠 プライベート</option>
+          <option value="勉強">📚 勉強</option>
+          <option value="健康">💪 健康</option>
+          <option value="買い物">🛒 買い物</option>
+        </select>
+      </div>
+
+      <!-- アイコン（機能A が実装） -->
+      <div class="form-group">
+        <label>アイコン</label>
+        <div class="icon-picker" id="icon-picker"></div>
+      </div>
+
+      <div class="form-group">
+        <label>カラー</label>
+        <div class="color-picker" id="color-picker"></div>
+      </div>
+
+      <!-- 繰り返し（機能A が実装） -->
+      <div class="form-group">
+        <label>繰り返し</label>
+        <select id="event-repeat">
+          <option value="none">なし</option>
+          <option value="daily">毎日</option>
+          <option value="weekly">毎週</option>
+          <option value="monthly">毎月</option>
+        </select>
+      </div>
+
+      <!-- リマインダー（機能B が実装） -->
+      <div class="form-group">
+        <label>リマインダー</label>
+        <select id="event-reminder">
+          <option value="none">なし</option>
+          <option value="5">5分前</option>
+          <option value="15">15分前</option>
+          <option value="30">30分前</option>
+          <option value="60">1時間前</option>
+        </select>
+      </div>
+
+      <!-- 画像添付（機能B が実装） -->
+      <div class="form-group">
+        <label>画像添付（AIで内容を読み取り）</label>
+        <input type="file" id="event-image" accept="image/*">
+        <p class="image-result" id="image-result"></p>
+      </div>
+
+      <div class="modal-buttons">
+        <button class="btn-save" id="save-btn">保存</button>
+        <button class="btn-delete" id="delete-btn" style="display:none">削除</button>
+        <button class="btn-cancel" id="cancel-btn">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================
+       JavaScript（ファイル読み込み順序が重要）
+  ============================ -->
+  <!-- ⓪ Supabase接続情報（このファイルはGitHubに上がらない） -->
+  <script src="config.js"></script>
+
+  <!-- ① メインロジック（実装担当 = あなた） -->
+  <script src="main.js"></script>
+
+  <!-- ② 機能Aのファイル（検索・一覧・繰り返し・タグ担当） -->
+  <script src="features-a.js"></script>
+
+  <!-- ③ 機能Bのファイル（通知・AI・音声・画像担当） -->
+  <script src="features-b.js"></script>
+
+</body>
+</html>
