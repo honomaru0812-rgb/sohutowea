@@ -409,46 +409,153 @@
   // ============================================================
   // 画像認識（画像から予定を読み取る）
   // ============================================================
+  // ============================================================
+  // 画像認識（画像から予定を読み取る）
+  // ============================================================
   (function setupImageRecognition() {
     var eventImage = document.getElementById("event-image");
     var imageResult = document.getElementById("image-result");
     if (!eventImage || !imageResult) return;
 
+    // 大きな画像を縮小して通信エラーを防ぐヘルパー
+    function resizeImage(file, maxWidth, maxHeight) {
+      return new Promise(function(resolve, reject) {
+        var img = new Image();
+        img.src = URL.createObjectURL(file);
+        img.onload = function() {
+          var width = img.width;
+          var height = img.height;
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            } else {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+          var canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          var ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, width, height);
+          var base64 = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+          resolve(base64);
+        };
+        img.onerror = reject;
+      });
+    }
+
+    // ユーザーが「保存」か「キャンセル」を押してモーダルが閉じるのを待つヘルパー
+    function waitForUserAction() {
+      return new Promise(function(resolve) {
+        var overlay = document.getElementById("modal-overlay");
+        var interval = setInterval(function() {
+          // activeクラスが消えたら（＝モーダルが閉じられたら）次の処理へ進む
+          if (!overlay.classList.contains("active")) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 300);
+      });
+    }
+
     eventImage.onchange = function() {
       var file = this.files[0];
       if (!file) return;
 
-      imageResult.textContent = "画像を分析中...";
+      imageResult.textContent = "画像を最適化して分析中...";
 
       var reader = new FileReader();
       reader.onload = async function() {
-        var base64 = reader.result.split(",")[1];
         try {
+          var base64 = await resizeImage(file, 1024, 1024);
           var referenceDate = getCurrentModalDateKey();
+
+          imageResult.textContent = "AI分析中...";
+          
           var parsed = await callAI("parse_image", {
             image: base64,
-            mediaType: file.type,
+            mediaType: "image/jpeg",
             referenceDate: referenceDate,
+            // 複数予定を配列で返すよう指示を追加
+            instruction: "画像内に複数の予定がある場合は、それらすべてを配列形式で返してください。"
           });
 
-          applyParsedEventToModal(parsed);
-
-          var summary = "AI分析結果: " + (parsed.title || "（タイトル不明）");
-          if (parsed.date) summary += " / " + parsed.date;
-          if (typeof parsed.startH === "number") {
-            summary += " " + pad2(parsed.startH) + ":" + pad2(parsed.startM || 0);
+          // AIの返答がオブジェクトか配列か揺れても対応できるようにする
+          var eventsToProcess = [];
+          if (Array.isArray(parsed)) {
+            eventsToProcess = parsed;
+          } else if (parsed && typeof parsed === "object") {
+            if (Array.isArray(parsed.events)) {
+              eventsToProcess = parsed.events;
+            } else {
+              eventsToProcess = [parsed];
+            }
           }
-          imageResult.textContent = summary;
 
-          if (parsed.date && referenceDate && parsed.date !== referenceDate) {
-            showInlineNote(
-              imageResult,
-              "検出された日付（" + parsed.date + "）は現在のモーダルの日付（" + referenceDate + "）と異なります。日付を変えたい場合は一度キャンセルして該当日をクリックしてください。",
-              false
-            );
+          if (eventsToProcess.length === 0 || !eventsToProcess[0]) {
+            throw new Error("予定を検出できませんでした。");
           }
+
+          // 解析が終わったら、今開いているモーダルを一旦閉じる
+          var cancelBtn = document.getElementById("cancel-btn");
+          if (cancelBtn) cancelBtn.click();
+          await new Promise(function(res) { setTimeout(res, 300); }); // アニメーション待ち
+
+          // 順番にモーダルを開いてユーザーの確認を待つ
+          for (var i = 0; i < eventsToProcess.length; i++) {
+            var evData = eventsToProcess[i];
+            var targetDate = evData.date || referenceDate;
+            if (!targetDate) continue;
+
+            // 該当年月にカレンダーを移動
+            var parts = targetDate.split("-").map(Number);
+            window.App.currentYear = parts[0];
+            window.App.currentMonth = parts[1] - 1;
+            window.App.renderCalendar();
+
+            // 該当日のセルをクリックして新規追加モーダルを開く
+            var cell = document.querySelector('.day-cell[data-date="' + targetDate + '"]');
+            if (cell) {
+              cell.click();
+
+              // モーダルの入力欄にAIの解析結果をセット（自動保存はしない）
+              applyParsedEventToModal(evData);
+
+              // ユーザーが分かりやすいようにモーダルのタイトルを変更
+              var modalTitle = document.getElementById("modal-title");
+              if (modalTitle) {
+                modalTitle.textContent = "画像からの予定確認 (" + (i + 1) + "/" + eventsToProcess.length + ")";
+              }
+              
+              var currentResult = document.getElementById("image-result");
+              if (currentResult) {
+                currentResult.textContent = "内容を確認して「保存」を押してください。";
+              }
+
+              // ここで処理を一時停止し、ユーザーが保存かキャンセルを押すのを待つ
+              await waitForUserAction();
+              
+              // 次の予定のモーダルを開く前にUIのちらつきを防止
+              await new Promise(function(res) { setTimeout(res, 300); });
+            }
+          }
+
+          // 全てのループが終わったら通知
+          if (typeof showInAppToast === "function") {
+            showInAppToast("確認完了", "すべての予定の確認が終わりました。");
+          }
+
         } catch (e) {
-          imageResult.textContent = "分析に失敗しました: " + e.message;
+          var currentResultErr = document.getElementById("image-result");
+          if (currentResultErr) currentResultErr.textContent = "分析に失敗しました: " + e.message;
+          if (typeof showInAppToast === "function") {
+            showInAppToast("エラー", e.message);
+          }
+        } finally {
+          // 同じ画像を連続で選べるようにリセット
+          eventImage.value = "";
         }
       };
       reader.readAsDataURL(file);
