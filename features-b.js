@@ -27,10 +27,107 @@
   function pad2(n) { return String(n).padStart(2, "0"); }
 
   // ============================================================
+  // 【テスト用】Edge Functionデプロイ前にUIだけ先に確認したいときはtrueにする
+  // 本番/デプロイ後は必ず false に戻すこと！
+  // ============================================================
+  var USE_MOCK_AI = false;
+
+  // モック応答（本物のAIより単純だが、テストしやすいよう簡易的な日本語解析をする）
+  function mockParseDate(text) {
+    var now = new Date();
+    var base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    if (!text) return base;
+
+    if (text.indexOf("明後日") !== -1) {
+      base.setDate(base.getDate() + 2);
+      return base;
+    }
+    if (text.indexOf("明日") !== -1) {
+      base.setDate(base.getDate() + 1);
+      return base;
+    }
+    if (text.indexOf("来週") !== -1) {
+      base.setDate(base.getDate() + 7);
+      return base;
+    }
+
+    // 「8月24日」「8/24」形式
+    var m = text.match(/(\d{1,2})\s*[月\/]\s*(\d{1,2})\s*日?/);
+    if (m) {
+      var month = Number(m[1]) - 1;
+      var day = Number(m[2]);
+      var candidate = new Date(now.getFullYear(), month, day);
+      // 今年の日付が既に過ぎていたら来年とみなす（例：1月に「12月」と言われた場合など）
+      if (candidate < base && (base - candidate) > 1000 * 60 * 60 * 24 * 30) {
+        candidate.setFullYear(now.getFullYear() + 1);
+      }
+      return candidate;
+    }
+
+    return base; // 今日
+  }
+
+  function mockParseTime(text, fallbackH) {
+    if (!text) return { h: fallbackH, m: 0 };
+    var m = text.match(/(\d{1,2})\s*時(?:\s*(\d{1,2})\s*分)?/);
+    if (!m) return { h: fallbackH, m: 0 };
+    var h = Number(m[1]);
+    if (text.indexOf("午後") !== -1 || text.indexOf("夜") !== -1) {
+      if (h < 12) h += 12;
+    }
+    return { h: h, m: m[2] ? Number(m[2]) : 0 };
+  }
+
+  function mockAI(action, extra) {
+    console.log("[MOCK] callAI呼び出し:", action, extra);
+    return new Promise(function(resolve) {
+      setTimeout(function() {
+        if (action === "parse_text") {
+          var text = extra.text || "";
+          var dateObj = mockParseDate(text);
+          var dateStr = dateObj.getFullYear() + "-" + pad2(dateObj.getMonth() + 1) + "-" + pad2(dateObj.getDate());
+
+          var time = mockParseTime(text, 15);
+          var title = text
+            .replace(/明後日|明日|今日|来週/g, "")
+            .replace(/\d{1,2}\s*[月\/]\s*\d{1,2}\s*日?/g, "")
+            .replace(/\d{1,2}\s*時(\s*\d{1,2}\s*分)?/g, "")
+            .replace(/午後|午前|夜/g, "")
+            .replace(/[のにを、。\s]/g, "")
+            .trim();
+
+          resolve({
+            title: title || "（モック）予定",
+            date: dateStr,
+            startH: time.h, startM: time.m,
+            endH: (time.h + 1) % 24, endM: time.m,
+            tag: "仕事",
+          });
+        } else if (action === "parse_image") {
+          resolve({
+            title: "（モック）画像から読み取った予定",
+            date: extra.referenceDate || null,
+            startH: 10, startM: 30,
+            endH: 11, endM: 30,
+            tag: "プライベート",
+          });
+        } else {
+          resolve({ title: "", date: null, startH: null, startM: null, endH: null, endM: null, tag: "" });
+        }
+      }, 600); // 本物っぽく少し待たせる
+    });
+  }
+
+  // ============================================================
   // AI呼び出し共通ヘルパー（Edge Function経由）
   // ============================================================
   // action: "parse_text" | "parse_image"
   async function callAI(action, extra) {
+    if (USE_MOCK_AI) {
+      return mockAI(action, extra || {});
+    }
+
     var body = Object.assign({ action: action, now: new Date().toISOString() }, extra);
     var result = await window.App.supabase.functions.invoke("ai-assist", { body: body });
     if (result.error) {
@@ -525,14 +622,187 @@
   }
 
   // ============================================================
+  // 他アプリとの連携（.ics インポート）
+  // Googleカレンダー等で「エクスポート」した.icsファイルを取り込む
+  // ============================================================
+
+  // "YYYYMMDD" or "YYYYMMDDTHHMMSS(Z)?" を dateKey/時刻に変換
+  function parseICSDateValue(value) {
+    if (!value) return null;
+    value = value.trim();
+
+    var m = value.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+    if (!m) return null;
+
+    var year = Number(m[1]), month = Number(m[2]), day = Number(m[3]);
+
+    if (!m[4]) {
+      // 終日イベント（時刻情報なし）
+      return { dateKey: year + "-" + pad2(month) + "-" + pad2(day), h: null, m: null, allDay: true };
+    }
+
+    var hour = Number(m[4]), min = Number(m[5]), sec = Number(m[6]);
+    var isUTC = !!m[7];
+    var d = isUTC ? new Date(Date.UTC(year, month - 1, day, hour, min, sec)) : new Date(year, month - 1, day, hour, min, sec);
+
+    return {
+      dateKey: d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()),
+      h: d.getHours(),
+      m: d.getMinutes(),
+      allDay: false,
+    };
+  }
+
+  // .icsファイルのテキストをイベント配列に変換
+  function parseICS(text) {
+    var normalized = text.replace(/\r\n[ \t]/g, ""); // 折り返し行を結合（簡易対応）
+    var blocks = normalized.split("BEGIN:VEVENT").slice(1);
+
+    return blocks.map(function(block) {
+      block = block.split("END:VEVENT")[0];
+
+      function getField(name) {
+        // 例: "DTSTART;TZID=Asia/Tokyo:20260715T150000" のようにパラメータが付く場合にも対応
+        var re = new RegExp("^" + name + "(;[^:\\r\\n]*)?:(.+)$", "m");
+        var m = block.match(re);
+        return m ? m[2].trim() : "";
+      }
+
+      var summary = getField("SUMMARY").replace(/\\,/g, ",").replace(/\\;/g, ";").replace(/\\n/g, " ").replace(/\\\\/g, "\\");
+      var dtstart = parseICSDateValue(getField("DTSTART"));
+      var dtend = parseICSDateValue(getField("DTEND"));
+      var categories = getField("CATEGORIES");
+
+      if (!summary || !dtstart) return null;
+
+      return {
+        title: summary,
+        dateKey: dtstart.dateKey,
+        startH: dtstart.allDay ? 9 : dtstart.h,
+        startM: dtstart.allDay ? 0 : dtstart.m,
+        endH: dtend && !dtend.allDay ? dtend.h : (dtstart.allDay ? 18 : (dtstart.h + 1) % 24),
+        endM: dtend && !dtend.allDay ? dtend.m : (dtstart.allDay ? 0 : dtstart.m),
+        tag: ["仕事", "プライベート", "勉強", "健康", "買い物"].indexOf(categories) !== -1 ? categories : "",
+      };
+    }).filter(Boolean);
+  }
+
+  // モーダルが閉じるのを待つ（保存処理の完了を大まかに待つため）
+  function waitForModalClose(timeoutMs) {
+    return new Promise(function(resolve) {
+      var overlay = document.getElementById("modal-overlay");
+      var waited = 0;
+      var interval = setInterval(function() {
+        waited += 100;
+        if (!overlay.classList.contains("active") || waited >= timeoutMs) {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
+  function sleep(ms) { return new Promise(function(resolve) { setTimeout(resolve, ms); }); }
+
+  // 1件のイベントをカレンダー日付クリック→フォーム入力→保存、の流れで追加する
+  async function addOneImportedEvent(evt) {
+    var parts = evt.dateKey.split("-").map(Number);
+    window.App.currentYear = parts[0];
+    window.App.currentMonth = parts[1] - 1;
+    window.App.renderCalendar();
+
+    var cell = document.querySelector('.day-cell[data-date="' + evt.dateKey + '"]');
+    if (!cell) return false;
+
+    cell.click(); // main.js の openModal(dateKey, null)
+
+    var titleInput = document.getElementById("event-title");
+    var startH = document.getElementById("start-h");
+    var startM = document.getElementById("start-m");
+    var endH = document.getElementById("end-h");
+    var endM = document.getElementById("end-m");
+    var tagSel = document.getElementById("event-tag");
+
+    if (titleInput) titleInput.value = evt.title;
+    if (startH && typeof evt.startH === "number") startH.value = evt.startH;
+    if (startM && typeof evt.startM === "number") startM.value = roundToStep(evt.startM);
+    if (endH && typeof evt.endH === "number") endH.value = evt.endH;
+    if (endM && typeof evt.endM === "number") endM.value = roundToStep(evt.endM);
+    if (tagSel && evt.tag) tagSel.value = evt.tag;
+
+    var saveBtn = document.getElementById("save-btn");
+    if (saveBtn) saveBtn.click();
+
+    await waitForModalClose(3000);
+    await sleep(200); // DB保存の余裕を持たせる
+    return true;
+  }
+
+  async function importICSEvents(events) {
+    if (events.length === 0) {
+      alert("インポートできる予定が見つかりませんでした。");
+      return;
+    }
+    var ok = confirm(events.length + "件の予定をインポートします。よろしいですか？");
+    if (!ok) return;
+
+    var successCount = 0;
+    for (var i = 0; i < events.length; i++) {
+      try {
+        var added = await addOneImportedEvent(events[i]);
+        if (added) successCount++;
+      } catch (e) {
+        console.error("インポート中にエラー:", events[i], e);
+      }
+    }
+
+    showInAppToast("インポート完了", events.length + "件中 " + successCount + "件を追加しました。");
+  }
+
+  function addImportButton() {
+    if (document.getElementById("import-ics-btn")) return;
+    var headerRight = document.querySelector(".header-right");
+    if (!headerRight) return;
+
+    // 隠しファイル入力
+    var fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = ".ics";
+    fileInput.style.display = "none";
+    fileInput.id = "import-ics-input";
+    fileInput.onchange = function() {
+      var file = this.files[0];
+      this.value = ""; // 同じファイルを連続で選んでも動くようにリセット
+      if (!file) return;
+
+      var reader = new FileReader();
+      reader.onload = function() {
+        var events = parseICS(reader.result);
+        importICSEvents(events);
+      };
+      reader.readAsText(file);
+    };
+    document.body.appendChild(fileInput);
+
+    var btn = document.createElement("button");
+    btn.id = "import-ics-btn";
+    btn.className = "btn-logout"; // 既存クラスを流用
+    btn.textContent = "📥 予定を取り込む";
+    btn.title = "Googleカレンダー等でエクスポートした.icsファイルを取り込む";
+    btn.onclick = function() { fileInput.click(); };
+    headerRight.insertBefore(btn, document.getElementById("logout-btn"));
+  }
+
+  // ============================================================
   // 初期化
   // ============================================================
   window.App.onReady.push(function() {
     updateNotificationButton();
     addQuickAddButton();
     addExportAllButton();
+    addImportButton();
     checkReminders(); // 起動直後にも1回チェック
-    console.log("機能B: 初期化完了（通知・音声入力・AI解析・画像認識・ICSエクスポート）");
+    console.log("機能B: 初期化完了（通知・音声入力・AI解析・画像認識・ICSエクスポート/インポート）");
   });
 
 })();
