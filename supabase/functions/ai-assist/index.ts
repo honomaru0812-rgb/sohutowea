@@ -21,7 +21,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const MODEL =const MODEL = "gemini-2.5-flash-lite"; // 軽量・無料枠あり（gemini-2.0-flashは2026年6月に提供終了）
+const MODEL = "gemini-2.5-flash-lite"; // 軽量・無料枠あり（gemini-2.0-flashは2026年6月に提供終了）
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
