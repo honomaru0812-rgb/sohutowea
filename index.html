@@ -51,13 +51,25 @@
     <!-- ヘッダー -->
     <div class="header">
       <div class="header-left">📅 スケジュール</div>
+      <!-- ★ -->
+      
       <div class="header-right">
-        <!-- 検索バー（機能A が実装） -->
-        <input type="text" id="search-input" class="search-input" placeholder="予定を検索...">
-        <span class="user-email" id="display-email"></span>
-        <button class="btn-logout" id="logout-btn">ログアウト</button>
-        <button id="menu-btn">☰</button><!-- ★ -->
+
+        <input
+            type="text"
+            id="search-input"
+            class="search-input"
+            placeholder="予定を検索...">
+
+        <button
+            id="menu-btn"
+            class="menu-btn">
+            ☰
+        </button>
+
       </div>
+
+      <!-- ★ -->
     </div>
 
     <!-- 表示切り替えタブ -->
@@ -195,6 +207,37 @@
   <!-- ============================
        JavaScript（ファイル読み込み順序が重要）
   ============================ -->
+
+<!-- ★ -->
+ <!-- Drawer -->
+<div id="drawer" class="drawer">
+
+    <div class="drawer-header">
+
+        <div class="avatar">
+            👤
+        </div>
+
+        <span
+            class="user-email"
+            id="display-email">
+        </span>
+
+    </div>
+
+    <button
+        id="logout-btn"
+        class="drawer-item">
+
+        🚪 ログアウト
+
+    </button>
+
+</div>
+
+<div id="drawer-overlay" class="drawer-overlay"></div>
+<!-- ★ -->
+
   <!-- ⓪ Supabase接続情報（このファイルはGitHubに上がらない） -->
   <script src="config.js"></script>
 
@@ -206,6 +249,7 @@
 
   <!-- ③ 機能Bのファイル（通知・AI・音声・画像担当） -->
   <script src="features-b.js"></script>
+
 
 </body>
 </html>

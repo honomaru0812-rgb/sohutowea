@@ -242,6 +242,9 @@
   }
 
   // 通知許可を促す小さなボタンをヘッダーに出す（許可済み/非対応なら出さない）
+
+// ★
+
   function updateNotificationButton() {
     var existing = document.getElementById("notif-permission-btn");
     if (existing) existing.remove();
@@ -249,16 +252,22 @@
     if (!("Notification" in window)) return;
     if (Notification.permission !== "default") return;
 
-    var headerRight = document.querySelector(".header-right");
-    if (!headerRight) return;
+    var drawer = document.getElementById("drawer");
+    var logoutBtn = document.getElementById("logout-btn");
+    if (!drawer || !logoutBtn) return;
 
     var btn = document.createElement("button");
     btn.id = "notif-permission-btn";
-    btn.className = "btn-logout"; // 既存クラスを流用（デザイン担当に専用クラスを依頼してもOK）
+    btn.className = "drawer-item"; // 既存クラスを流用（デザイン担当に専用クラスを依頼してもOK）
     btn.textContent = "🔔 通知を許可";
-    btn.onclick = requestNotificationPermission;
-    headerRight.insertBefore(btn, headerRight.firstChild);
+    btn.onclick = function(){
+      closeDrawer();
+      requestNotificationPermission();
+    };
+    drawer.insertBefore(btn, logoutBtn);
   }
+
+// ★
 
   // リマインダーをチェック（20秒ごと）
   function checkReminders() {
@@ -455,7 +464,7 @@
     var overlay = document.createElement("div");
     overlay.className = "modal-overlay active";
     overlay.id = "ai-quickadd-overlay";
-    overlay.style.zIndex = "200";
+    overlay.style.zIndex = "1000";
 
     overlay.innerHTML =
       '<div class="modal">' +
@@ -514,18 +523,26 @@
     };
   }
 
+// ★
+
   function addQuickAddButton() {
     if (document.getElementById("ai-quickadd-btn")) return;
-    var headerRight = document.querySelector(".header-right");
-    if (!headerRight) return;
+    var drawer = document.getElementById("drawer");
+    var logoutBtn = document.getElementById("logout-btn");
+    if (!drawer || !logoutBtn) return;
 
     var btn = document.createElement("button");
     btn.id = "ai-quickadd-btn";
-    btn.className = "btn-today"; // 既存クラスを流用
+    btn.className = "drawer-item"; // 既存クラスを流用
     btn.textContent = "🤖 AIで追加";
-    btn.onclick = openQuickAddOverlay;
-    headerRight.insertBefore(btn, headerRight.firstChild);
+    btn.onclick = function() {
+      closeDrawer();
+      openQuickAddOverlay();
+    };
+    drawer.insertBefore(btn, logoutBtn);
   }
+
+// ★
 
   // ============================================================
   // 他アプリとの連携（.ics エクスポート）
@@ -608,18 +625,24 @@
     modalButtons.appendChild(btn);
   });
 
+// ★
   function addExportAllButton() {
     if (document.getElementById("export-all-btn")) return;
-    var headerRight = document.querySelector(".header-right");
-    if (!headerRight) return;
+    var drawer = document.getElementById("drawer");
+    var logoutBtn = document.getElementById("logout-btn");
+    if (!drawer || !logoutBtn) return;
 
     var btn = document.createElement("button");
     btn.id = "export-all-btn";
-    btn.className = "btn-logout"; // 既存クラスを流用
+    btn.className = "drawer-item"; // 既存クラスを流用
     btn.textContent = "📤 全予定を書き出す";
-    btn.onclick = exportAllEvents;
-    headerRight.insertBefore(btn, document.getElementById("logout-btn"));
+    btn.onclick = function() {
+      closeDrawer();
+      exportAllEvents();
+    };
+    drawer.insertBefore(btn, logoutBtn);
   }
+// ★
 
   // ============================================================
   // 他アプリとの連携（.ics インポート）
@@ -759,10 +782,12 @@
     showInAppToast("インポート完了", events.length + "件中 " + successCount + "件を追加しました。");
   }
 
+// ★
   function addImportButton() {
     if (document.getElementById("import-ics-btn")) return;
-    var headerRight = document.querySelector(".header-right");
-    if (!headerRight) return;
+    var drawer = document.getElementById("drawer");
+    var logoutBtn = document.getElementById("logout-btn");
+    if (!drawer || !logoutBtn) return;
 
     // 隠しファイル入力
     var fileInput = document.createElement("input");
@@ -786,12 +811,17 @@
 
     var btn = document.createElement("button");
     btn.id = "import-ics-btn";
-    btn.className = "btn-logout"; // 既存クラスを流用
+    btn.className = "drawer-item"; // 既存クラスを流用
     btn.textContent = "📥 予定を取り込む";
     btn.title = "Googleカレンダー等でエクスポートした.icsファイルを取り込む";
-    btn.onclick = function() { fileInput.click(); };
-    headerRight.insertBefore(btn, document.getElementById("logout-btn"));
+    btn.onclick = function() { 
+      closeDrawer();
+      fileInput.click(); 
+    };
+    drawer.insertBefore(btn, logoutBtn);
   }
+
+// ★
 
   // ============================================================
   // 初期化

@@ -33,6 +33,10 @@ window.App = {
   currentYear: new Date().getFullYear(),
   currentMonth: new Date().getMonth(),
 
+  // ★
+  initialized: false,
+  // ★
+
   // 他のファイルが登録するフック（初期化時に呼ばれる）
   onReady: [],          // アプリ起動時に実行する関数リスト
   onEventsLoaded: [],   // 予定読み込み完了時に実行する関数リスト
@@ -234,9 +238,15 @@ async function showApp() {
   renderCalendar();
 
   // 他ファイルの初期化フックを実行
-  window.App.onReady.forEach(function(fn) { fn(); });
-}
+  if (!window.App.initialized) {
 
+      window.App.onReady.forEach(function(fn) {
+          fn();
+      });
+
+      window.App.initialized = true;
+  }
+}
 // ============================================================
 // データベース操作
 // ============================================================
@@ -270,6 +280,7 @@ async function loadEvents() {
   window.App.onEventsLoaded.forEach(function(fn) { fn(); });
 }
 
+// ★
 async function saveEventToDB(dateKey, eventData, isEdit) {
   var record = {
     user_id: window.App.currentUser.id,
@@ -287,16 +298,39 @@ async function saveEventToDB(dateKey, eventData, isEdit) {
   };
 
   if (isEdit) {
-    await supabaseClient.from("events").update(record).eq("id", eventData.id);
-  } else {
-    var result = await supabaseClient.from("events").insert(record).select();
-    if (result.data && result.data[0]) eventData.id = result.data[0].id;
-  }
-}
 
-async function removeEventFromDB(eventId) {
-  await supabaseClient.from("events").delete().eq("id", eventId);
+    var result = await supabaseClient
+      .from("events")
+      .update(record)
+      .eq("id", eventData.id);
+
+    if (result.error) {
+      alert("予定の更新に失敗しました。");
+      console.error(result.error);
+      return false;
+    }
+
+  } else {
+
+    var result = await supabaseClient
+      .from("events")
+      .insert(record)
+      .select();
+
+    if (result.error) {
+      alert("予定の保存に失敗しました。");
+      console.error(result.error);
+      return false;
+    }
+
+    if (result.data && result.data[0]) {
+      eventData.id = result.data[0].id;
+    }
+  }
+
+  return true;
 }
+// ★
 
 // ============================================================
 // カレンダー描画
@@ -455,7 +489,15 @@ saveBtn.onclick = async function() {
     reminder: reminderSel ? reminderSel.value : "none",
   };
 
-  await saveEventToDB(selectedDate, eventData, !!editingEvent);
+  // ★
+  var success = await saveEventToDB(
+      selectedDate,
+      eventData,
+      !!editingEvent
+  );
+
+  if (!success) return;
+  // ★
 
   if (!window.App.events[selectedDate]) window.App.events[selectedDate] = [];
 
@@ -519,3 +561,34 @@ async function checkSession() {
   }
 }
 checkSession();
+
+// ★
+
+const menuBtn =
+document.getElementById("menu-btn");
+
+const drawer =
+document.getElementById("drawer");
+
+const drawerOverlay =
+document.getElementById("drawer-overlay");
+
+menuBtn.addEventListener("click", openDrawer);
+
+drawerOverlay.addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+        closeDrawer();
+    }
+});
+
+function openDrawer() {
+    drawer.classList.add("active");
+    drawerOverlay.classList.add("active");
+}
+
+function closeDrawer() {
+    drawer.classList.remove("active");
+    drawerOverlay.classList.remove("active");
+}
