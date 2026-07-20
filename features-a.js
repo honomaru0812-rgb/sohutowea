@@ -220,6 +220,13 @@
       escaped.slice(idx + query.length);
   }
 
+  // 繰り返し種別の表示ラベル（一覧・検索結果でバッジ表示に使う）
+  var REPEAT_LABELS = {
+    daily:   "毎日",
+    weekly:  "毎週",
+    monthly: "毎月"
+  };
+
   // 一覧の1行分のDOMを作る（通常表示・検索結果表示の両方で共用）
   function buildListItem(dateKey, evt, highlightQuery) {
     var isPast = window.App.isEventPast(dateKey, evt.endH, evt.endM);
@@ -231,15 +238,19 @@
     var titleHtml = highlightQuery ? highlightMatch(evt.title || "", highlightQuery) : escapeHtml(evt.title || "");
     var tagHtml = evt.tag ? (highlightQuery ? highlightMatch(evt.tag, highlightQuery) : escapeHtml(evt.tag)) : "";
 
+    var repeatLabel = (evt.repeat && REPEAT_LABELS[evt.repeat]) ? REPEAT_LABELS[evt.repeat] : "";
+
     div.innerHTML =
-      '<div class="event-list-icon">' + (evt.icon || "📅") + (evt.repeat && evt.repeat !== "none" ? " 🔁" : "") + '</div>' +
+      '<div class="event-list-icon">' + (evt.icon || "📅") + '</div>' +
       '<div class="event-list-info">' +
-      '  <div class="event-list-title">' + titleHtml + '</div>' +
+      '  <div class="event-list-title">' + titleHtml +
+           (repeatLabel ? ' <span class="event-list-tag" style="background:#fff0d6;color:#b8860b;margin-left:4px;">🔁 ' + repeatLabel + '</span>' : '') +
+      '  </div>' +
       '  <div class="event-list-meta">' + dateKey + '　' + startTime + ' - ' + endTime + '</div>' +
       '</div>' +
       (evt.tag ? '<span class="event-list-tag" data-tag="' + escapeHtml(evt.tag) + '">' + tagHtml + '</span>' : '');
 
-    if (evt.tag) applyTagStyle(div.querySelector(".event-list-tag"), evt.tag);
+    if (evt.tag) applyTagStyle(div.querySelector(".event-list-tag[data-tag]"), evt.tag);
 
     // 「カレンダーで見る」ボタン（その日のカレンダー表示にジャンプする）
     var jumpBtn = document.createElement("button");
