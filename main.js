@@ -38,6 +38,7 @@ window.App = {
   onEventsLoaded: [],   // 予定読み込み完了時に実行する関数リスト
   onCalendarRender: [], // カレンダー描画後に実行する関数リスト
   onEventSave: [],      // 予定保存時に実行する関数リスト
+  onEventDelete: [],    // 予定削除時に実行する関数リスト（★追加：features-a.jsが必要としていた）
   onModalOpen: [],      // モーダルを開いた時に実行する関数リスト
 };
 
@@ -441,6 +442,10 @@ function openModal(dateKey, event) {
   window.App.onModalOpen.forEach(function(fn) { fn(dateKey, event); });
 }
 
+// グローバルに公開（★追加：features-a.js / features-b.js が
+// window.App.openModal(...) という形で呼び出しているため）
+window.App.openModal = openModal;
+
 function closeModal() {
   modalOverlay.classList.remove("active");
   editingEvent = null;
@@ -502,12 +507,142 @@ deleteBtn.onclick = async function() {
   }
   if (list.length === 0) delete window.App.events[selectedDate];
 
+  // 削除フック実行（★追加：features-a.js が一覧・タグフィルターの
+  // 再描画に使っているが、これまで呼ばれていなかった）
+  window.App.onEventDelete.forEach(function(fn) { fn(); });
+
   closeModal();
   renderCalendar();
 };
 
 cancelBtn.onclick = closeModal;
 modalOverlay.onclick = function(e) { if (e.target === modalOverlay) closeModal(); };
+
+// ============================================================
+// アカウント設定モーダル
+// ============================================================
+var accountSettingsBtn = document.getElementById("account-settings-btn");
+var accountModalOverlay = document.getElementById("account-modal-overlay");
+var accountModalCloseBtn = document.getElementById("account-modal-close-btn");
+var accountEmailDisplay = document.getElementById("account-email-display");
+var deleteDataBtn = document.getElementById("delete-data-btn");
+var deleteAccountBtn = document.getElementById("delete-account-btn");
+var accountErrorMsg = document.getElementById("account-error-msg");
+var accountSuccessMsg = document.getElementById("account-success-msg");
+
+function showAccountError(msg) {
+  accountErrorMsg.textContent = msg;
+  accountErrorMsg.style.display = "block";
+  accountSuccessMsg.style.display = "none";
+}
+function showAccountSuccess(msg) {
+  accountSuccessMsg.textContent = msg;
+  accountSuccessMsg.style.display = "block";
+  accountErrorMsg.style.display = "none";
+}
+function hideAccountMessages() {
+  accountErrorMsg.style.display = "none";
+  accountSuccessMsg.style.display = "none";
+}
+
+accountSettingsBtn.onclick = function() {
+  accountEmailDisplay.textContent = window.App.currentUser.email;
+  hideAccountMessages();
+  accountModalOverlay.classList.add("active");
+};
+
+accountModalCloseBtn.onclick = function() {
+  accountModalOverlay.classList.remove("active");
+};
+
+accountModalOverlay.onclick = function(e) {
+  if (e.target === accountModalOverlay) accountModalOverlay.classList.remove("active");
+};
+
+// ----------------------------------------------------------
+// ① 予定データだけ削除（アカウントは残す）
+// ----------------------------------------------------------
+deleteDataBtn.onclick = async function() {
+  var confirmed = confirm("本当に全ての予定データを削除しますか？この操作は取り消せません。");
+  if (!confirmed) return;
+
+  deleteDataBtn.disabled = true;
+  deleteDataBtn.textContent = "削除中...";
+
+  var result = await supabaseClient
+    .from("events")
+    .delete()
+    .eq("user_id", window.App.currentUser.id);
+
+  deleteDataBtn.disabled = false;
+  deleteDataBtn.textContent = "予定データを全て削除";
+
+  if (result.error) {
+    showAccountError("削除に失敗しました: " + result.error.message);
+    return;
+  }
+
+  window.App.events = {};
+  renderCalendar();
+  if (window.App.renderList) window.App.renderList();
+
+  // 削除フック実行（一覧・タグフィルターなどにも反映）
+  window.App.onEventDelete.forEach(function(fn) { fn(); });
+
+  showAccountSuccess("予定データを削除しました。");
+};
+
+// ----------------------------------------------------------
+// ② アカウント自体を完全に削除
+//    注意：Supabase Edge Function「delete-account」が必要です。
+//    supabase/functions/delete-account/index.ts を
+//    Supabaseにデプロイしてから使えるようになります。
+//    デプロイ手順は README-account-deletion.md を参照してください。
+// ----------------------------------------------------------
+deleteAccountBtn.onclick = async function() {
+  var confirmed = confirm(
+    "本当にアカウントを完全に削除しますか？\n" +
+    "全ての予定データも削除され、この操作は取り消せません。"
+  );
+  if (!confirmed) return;
+
+  var confirmedAgain = confirm("最終確認です。本当によろしいですか？");
+  if (!confirmedAgain) return;
+
+  deleteAccountBtn.disabled = true;
+  deleteAccountBtn.textContent = "削除中...";
+
+  try {
+    // Edge Function を呼び出す（ユーザー自身のトークンで安全に削除）
+    var result = await supabaseClient.functions.invoke("delete-account");
+
+    if (result.error) {
+      showAccountError(
+        "削除に失敗しました。Edge Functionが未設定の可能性があります: " + result.error.message
+      );
+      deleteAccountBtn.disabled = false;
+      deleteAccountBtn.textContent = "アカウントを完全に削除";
+      return;
+    }
+
+    // 削除成功 → ログアウトしてログイン画面に戻す
+    await supabaseClient.auth.signOut();
+    window.App.currentUser = null;
+    window.App.events = {};
+    accountModalOverlay.classList.remove("active");
+    appScreen.style.display = "none";
+    loginScreen.style.display = "flex";
+    emailInput.value = ""; passwordInput.value = ""; passwordConfirmInput.value = "";
+    passwordConfirmGroup.style.display = "none";
+    isLoginMode = true;
+    showSuccess("アカウントを削除しました。");
+
+  } catch (err) {
+    showAccountError("エラーが発生しました: " + err.message);
+    deleteAccountBtn.disabled = false;
+    deleteAccountBtn.textContent = "アカウントを完全に削除";
+  }
+};
 
 // 表示切り替え（カレンダー ↔ 一覧）
 document.querySelectorAll(".view-tab").forEach(function(tab) {

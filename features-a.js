@@ -67,6 +67,14 @@
     }
   }
 
+  // 「終わった予定を隠す」判定用のヘルパー。
+  // 繰り返し予定（daily/weekly/monthly）は元の日付が過去でも将来また発生するため、
+  // 検索結果・一覧から除外してはいけない。繰り返しなしの予定だけ通常通り判定する。
+  function isEffectivelyPast(dateKey, evt) {
+    if (evt.repeat && evt.repeat !== "none") return false;
+    return window.App.isEventPast(dateKey, evt.endH, evt.endM);
+  }
+
   // ============================================================
   // アイコンピッカーの初期化
   // ============================================================
@@ -110,6 +118,32 @@
   });
 
   // ============================================================
+  // カレンダーの該当日にジャンプする（検索結果・一覧の両方から使用）
+  // ============================================================
+  function jumpToCalendarDate(dateKey) {
+    var parts = dateKey.split("-").map(Number);
+    window.App.currentYear = parts[0];
+    window.App.currentMonth = parts[1] - 1;
+    if (window.App.renderCalendar) window.App.renderCalendar();
+
+    // 「カレンダー」タブに切り替え
+    var calTab = document.getElementById("tab-calendar");
+    if (calTab) calTab.click();
+
+    // タブ切り替え・再描画の完了を待ってからハイライト
+    setTimeout(function() {
+      var cell = document.querySelector('.day-cell[data-date="' + dateKey + '"]');
+      if (!cell) return;
+      cell.scrollIntoView({ behavior: "smooth", block: "center" });
+      cell.style.transition = "box-shadow 0.3s";
+      cell.style.boxShadow = "0 0 0 3px #4A7BF7";
+      setTimeout(function() { cell.style.boxShadow = ""; }, 1600);
+    }, 50);
+  }
+
+  window.App.jumpToCalendarDate = jumpToCalendarDate;
+
+  // ============================================================
   // 検索機能
   // ============================================================
   var searchInput = document.getElementById("search-input");
@@ -127,7 +161,7 @@
         var title = (evt.title || "").toLowerCase();
         var tag = (evt.tag || "").toLowerCase();
         if (title.indexOf(query) === -1 && tag.indexOf(query) === -1) return;
-        if (hidePast && window.App.isEventPast(dateKey, evt.endH, evt.endM)) return;
+        if (hidePast && isEffectivelyPast(dateKey, evt)) return;
         results.push({ dateKey: dateKey, event: evt });
       });
     });
@@ -186,6 +220,13 @@
       escaped.slice(idx + query.length);
   }
 
+  // 繰り返し種別の表示ラベル（一覧・検索結果でバッジ表示に使う）
+  var REPEAT_LABELS = {
+    daily:   "毎日",
+    weekly:  "毎週",
+    monthly: "毎月"
+  };
+
   // 一覧の1行分のDOMを作る（通常表示・検索結果表示の両方で共用）
   function buildListItem(dateKey, evt, highlightQuery) {
     var isPast = window.App.isEventPast(dateKey, evt.endH, evt.endM);
@@ -197,17 +238,40 @@
     var titleHtml = highlightQuery ? highlightMatch(evt.title || "", highlightQuery) : escapeHtml(evt.title || "");
     var tagHtml = evt.tag ? (highlightQuery ? highlightMatch(evt.tag, highlightQuery) : escapeHtml(evt.tag)) : "";
 
+    var repeatLabel = (evt.repeat && REPEAT_LABELS[evt.repeat]) ? REPEAT_LABELS[evt.repeat] : "";
+
     div.innerHTML =
-      '<div class="event-list-icon">' + (evt.icon || "📅") + (evt.repeat && evt.repeat !== "none" ? " 🔁" : "") + '</div>' +
+      '<div class="event-list-icon">' + (evt.icon || "📅") + '</div>' +
       '<div class="event-list-info">' +
-      '  <div class="event-list-title">' + titleHtml + '</div>' +
+      '  <div class="event-list-title">' + titleHtml +
+           (repeatLabel ? ' <span class="event-list-tag" style="background:#fff0d6;color:#b8860b;margin-left:4px;">🔁 ' + repeatLabel + '</span>' : '') +
+      '  </div>' +
       '  <div class="event-list-meta">' + dateKey + '　' + startTime + ' - ' + endTime + '</div>' +
       '</div>' +
       (evt.tag ? '<span class="event-list-tag" data-tag="' + escapeHtml(evt.tag) + '">' + tagHtml + '</span>' : '');
 
-    if (evt.tag) applyTagStyle(div.querySelector(".event-list-tag"), evt.tag);
+    if (evt.tag) applyTagStyle(div.querySelector(".event-list-tag[data-tag]"), evt.tag);
 
-    // クリックで編集モーダルを開く
+    // 「カレンダーで見る」ボタン（その日のカレンダー表示にジャンプする）
+    var jumpBtn = document.createElement("button");
+    jumpBtn.type = "button";
+    jumpBtn.title = "カレンダーでこの日を見る";
+    jumpBtn.textContent = "📅";
+    jumpBtn.style.border = "none";
+    jumpBtn.style.background = "#f0f0f0";
+    jumpBtn.style.borderRadius = "6px";
+    jumpBtn.style.width = "30px";
+    jumpBtn.style.height = "30px";
+    jumpBtn.style.fontSize = "14px";
+    jumpBtn.style.cursor = "pointer";
+    jumpBtn.style.flexShrink = "0";
+    jumpBtn.onclick = function(ev) {
+      ev.stopPropagation(); // 親要素の編集モーダルが開かないようにする
+      jumpToCalendarDate(dateKey);
+    };
+    div.appendChild(jumpBtn);
+
+    // クリックで編集モーダルを開く（ジャンプボタン以外の部分）
     div.style.cursor = "pointer";
     div.onclick = function() {
       if (window.App.openModal) window.App.openModal(dateKey, evt);
@@ -258,7 +322,7 @@
     // 終わった予定を隠すオプション
     if (getHidePastPref()) {
       allEvents = allEvents.filter(function(item) {
-        return !window.App.isEventPast(item.dateKey, item.event.endH, item.event.endM);
+        return !isEffectivelyPast(item.dateKey, item.event);
       });
     }
 
