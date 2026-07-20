@@ -67,6 +67,14 @@
     }
   }
 
+  // 「終わった予定を隠す」判定用のヘルパー。
+  // 繰り返し予定（daily/weekly/monthly）は元の日付が過去でも将来また発生するため、
+  // 検索結果・一覧から除外してはいけない。繰り返しなしの予定だけ通常通り判定する。
+  function isEffectivelyPast(dateKey, evt) {
+    if (evt.repeat && evt.repeat !== "none") return false;
+    return window.App.isEventPast(dateKey, evt.endH, evt.endM);
+  }
+
   // ============================================================
   // アイコンピッカーの初期化
   // ============================================================
@@ -153,7 +161,7 @@
         var title = (evt.title || "").toLowerCase();
         var tag = (evt.tag || "").toLowerCase();
         if (title.indexOf(query) === -1 && tag.indexOf(query) === -1) return;
-        if (hidePast && window.App.isEventPast(dateKey, evt.endH, evt.endM)) return;
+        if (hidePast && isEffectivelyPast(dateKey, evt)) return;
         results.push({ dateKey: dateKey, event: evt });
       });
     });
@@ -303,7 +311,7 @@
     // 終わった予定を隠すオプション
     if (getHidePastPref()) {
       allEvents = allEvents.filter(function(item) {
-        return !window.App.isEventPast(item.dateKey, item.event.endH, item.event.endM);
+        return !isEffectivelyPast(item.dateKey, item.event);
       });
     }
 
