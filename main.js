@@ -33,10 +33,6 @@ window.App = {
   currentYear: new Date().getFullYear(),
   currentMonth: new Date().getMonth(),
 
-  // ★
-  initialized: false,
-  // ★
-
   // 他のファイルが登録するフック（初期化時に呼ばれる）
   onReady: [],          // アプリ起動時に実行する関数リスト
   onEventsLoaded: [],   // 予定読み込み完了時に実行する関数リスト
@@ -60,6 +56,8 @@ var loginScreen   = document.getElementById("login-screen");
 var appScreen     = document.getElementById("app-screen");
 var emailInput    = document.getElementById("email-input");
 var passwordInput = document.getElementById("password-input");
+var passwordConfirmInput = document.getElementById("password-confirm-input");
+var passwordConfirmGroup = document.getElementById("password-confirm-group");
 var authBtn       = document.getElementById("auth-btn");
 var errorMsg      = document.getElementById("error-msg");
 var successMsg    = document.getElementById("success-msg");
@@ -184,8 +182,14 @@ authBtn.onclick = async function() {
     window.App.currentUser = result.data.user;
     showApp();
   } else {
+    var passwordConfirm = passwordConfirmInput.value;
+
     if (password.length < 6) {
       showError("パスワードは6文字以上にしてください");
+      authBtn.disabled = false; authBtn.textContent = "登録"; return;
+    }
+    if (password !== passwordConfirm) {
+      showError("パスワードが一致しません。もう一度入力してください");
       authBtn.disabled = false; authBtn.textContent = "登録"; return;
     }
     result = await supabaseClient.auth.signUp({ email: email, password: password });
@@ -210,6 +214,8 @@ switchLink.onclick = function() {
   switchMsgEl.textContent = isLoginMode ? "アカウントがない？" : "すでにアカウントがある？";
   switchLink.textContent = isLoginMode ? "新規登録" : "ログイン";
   loginSubtitle.textContent = isLoginMode ? "ログインして予定を管理" : "アカウントを作成";
+  passwordConfirmGroup.style.display = isLoginMode ? "none" : "block";
+  passwordConfirmInput.value = "";
   authBtn.disabled = false;
 };
 
@@ -219,7 +225,8 @@ logoutBtn.onclick = async function() {
   window.App.events = {};
   appScreen.style.display = "none";
   loginScreen.style.display = "flex";
-  emailInput.value = ""; passwordInput.value = "";
+  emailInput.value = ""; passwordInput.value = ""; passwordConfirmInput.value = "";
+  passwordConfirmGroup.style.display = "none";
   authBtn.textContent = "ログイン"; authBtn.disabled = false;
   isLoginMode = true; hideMessages();
 };
@@ -238,15 +245,9 @@ async function showApp() {
   renderCalendar();
 
   // 他ファイルの初期化フックを実行
-  if (!window.App.initialized) {
-
-      window.App.onReady.forEach(function(fn) {
-          fn();
-      });
-
-      window.App.initialized = true;
-  }
+  window.App.onReady.forEach(function(fn) { fn(); });
 }
+
 // ============================================================
 // データベース操作
 // ============================================================
@@ -280,7 +281,6 @@ async function loadEvents() {
   window.App.onEventsLoaded.forEach(function(fn) { fn(); });
 }
 
-// ★
 async function saveEventToDB(dateKey, eventData, isEdit) {
   var record = {
     user_id: window.App.currentUser.id,
@@ -298,39 +298,16 @@ async function saveEventToDB(dateKey, eventData, isEdit) {
   };
 
   if (isEdit) {
-
-    var result = await supabaseClient
-      .from("events")
-      .update(record)
-      .eq("id", eventData.id);
-
-    if (result.error) {
-      alert("予定の更新に失敗しました。");
-      console.error(result.error);
-      return false;
-    }
-
+    await supabaseClient.from("events").update(record).eq("id", eventData.id);
   } else {
-
-    var result = await supabaseClient
-      .from("events")
-      .insert(record)
-      .select();
-
-    if (result.error) {
-      alert("予定の保存に失敗しました。");
-      console.error(result.error);
-      return false;
-    }
-
-    if (result.data && result.data[0]) {
-      eventData.id = result.data[0].id;
-    }
+    var result = await supabaseClient.from("events").insert(record).select();
+    if (result.data && result.data[0]) eventData.id = result.data[0].id;
   }
-
-  return true;
 }
-// ★
+
+async function removeEventFromDB(eventId) {
+  await supabaseClient.from("events").delete().eq("id", eventId);
+}
 
 // ============================================================
 // カレンダー描画
@@ -489,15 +466,7 @@ saveBtn.onclick = async function() {
     reminder: reminderSel ? reminderSel.value : "none",
   };
 
-  // ★
-  var success = await saveEventToDB(
-      selectedDate,
-      eventData,
-      !!editingEvent
-  );
-
-  if (!success) return;
-  // ★
+  await saveEventToDB(selectedDate, eventData, !!editingEvent);
 
   if (!window.App.events[selectedDate]) window.App.events[selectedDate] = [];
 
@@ -561,34 +530,3 @@ async function checkSession() {
   }
 }
 checkSession();
-
-// ★
-
-const menuBtn =
-document.getElementById("menu-btn");
-
-const drawer =
-document.getElementById("drawer");
-
-const drawerOverlay =
-document.getElementById("drawer-overlay");
-
-menuBtn.addEventListener("click", openDrawer);
-
-drawerOverlay.addEventListener("click", closeDrawer);
-
-document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-        closeDrawer();
-    }
-});
-
-function openDrawer() {
-    drawer.classList.add("active");
-    drawerOverlay.classList.add("active");
-}
-
-function closeDrawer() {
-    drawer.classList.remove("active");
-    drawerOverlay.classList.remove("active");
-}
