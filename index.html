@@ -56,11 +56,15 @@
     <!-- ヘッダー -->
     <div class="header">
       <div class="header-left">📅 スケジュール</div>
+
+      <!-- ★修正: メールアドレス表示とログアウトボタンをdrawer内に移動したため、
+                  header-rightには検索バーとメニューボタンのみ残す -->
       <div class="header-right">
         <!-- 検索バー（機能A が実装） -->
         <input type="text" id="search-input" class="search-input" placeholder="予定を検索...">
-        <span class="user-email" id="display-email"></span>
-        <button class="btn-logout" id="logout-btn">ログアウト</button>
+
+        <!-- ★追加: 隠しメニュー（drawer）を開くボタン -->
+        <button id="menu-btn" class="menu-btn">☰</button>
       </div>
     </div>
 
@@ -195,6 +199,30 @@
       </div>
     </div>
   </div>
+
+  <!-- ============================
+       ★追加: 隠しメニュー（Drawer）
+       menu-btn クリックで開閉する。
+       メールアドレス表示・ログアウトボタン、
+       features-b.js が動的に追加する機能ボタン
+       （通知許可・AIで追加・エクスポート・インポート）
+       もここに挿入される。
+  ============================ -->
+  <div id="drawer" class="drawer">
+
+    <div class="drawer-header">
+      <div class="avatar">👤</div>
+      <span class="user-email" id="display-email"></span>
+    </div>
+
+    <button id="logout-btn" class="drawer-item">
+      🚪 ログアウト
+    </button>
+
+  </div>
+
+  <div id="drawer-overlay" class="drawer-overlay"></div>
+  <!-- ★追加ここまで -->
 
   <!-- ============================
        JavaScript（ファイル読み込み順序が重要）

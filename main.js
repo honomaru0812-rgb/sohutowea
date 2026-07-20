@@ -229,6 +229,9 @@ logoutBtn.onclick = async function() {
   passwordConfirmGroup.style.display = "none";
   authBtn.textContent = "ログイン"; authBtn.disabled = false;
   isLoginMode = true; hideMessages();
+
+  // ★追加: ログアウト時にdrawerが開いたままにならないよう閉じておく
+  closeDrawer();
 };
 
 // ============================================================
@@ -530,3 +533,33 @@ async function checkSession() {
   }
 }
 checkSession();
+
+// ============================================================
+// ★追加ここから: 隠しメニュー（Drawer）の開閉ロジック
+//   index.html 側の #menu-btn / #drawer / #drawer-overlay と対応。
+//   openDrawer / closeDrawer はグローバル関数として定義することで、
+//   features-b.js（別のIIFE内）からも呼び出せるようにしている。
+// ============================================================
+const menuBtn = document.getElementById("menu-btn");
+const drawer = document.getElementById("drawer");
+const drawerOverlay = document.getElementById("drawer-overlay");
+
+menuBtn.addEventListener("click", openDrawer);
+drawerOverlay.addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    closeDrawer();
+  }
+});
+
+function openDrawer() {
+  drawer.classList.add("active");
+  drawerOverlay.classList.add("active");
+}
+
+function closeDrawer() {
+  drawer.classList.remove("active");
+  drawerOverlay.classList.remove("active");
+}
+// ★追加ここまで
