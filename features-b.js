@@ -103,13 +103,13 @@
       return mockAI(action, extra || {});
     }
 
-    // 【修正】UTCのtoISOString()ではなく、JST（ローカル日時）の文字列を渡す
     var now = new Date();
     var localNow = now.getFullYear() + "-" + pad2(now.getMonth() + 1) + "-" + pad2(now.getDate()) + 
                    " " + pad2(now.getHours()) + ":" + pad2(now.getMinutes());
 
     var body = Object.assign({ action: action, now: localNow }, extra);
     var result = await window.App.supabase.functions.invoke("ai-assist", { body: body });
+    
     if (result.error) {
       console.error("AI呼び出しエラー:", result.error);
       throw new Error("AI機能の呼び出しに失敗しました。Edge Function 'ai-assist' がデプロイされているか確認してください。");
@@ -145,7 +145,6 @@
     return el ? el.textContent.trim() : "";
   }
 
-  // 【修正】AIの解析結果をフォームに反映する処理の型変換・型判定を強化
   function applyParsedEventToModal(parsed) {
     if (!parsed) return;
 
@@ -154,7 +153,6 @@
       if (titleInput) titleInput.value = parsed.title;
     }
 
-    // 数値文字列（例: "16"）で返ってきた場合にも対応できるよう parse を挟む
     if (parsed.startH !== undefined && parsed.startH !== null && parsed.startH !== "") {
       var startH = document.getElementById("start-h");
       var startM = document.getElementById("start-m");
@@ -351,7 +349,7 @@
   setInterval(checkReminders, 20000);
 
   // ============================================================
-  // 音声入力（スマホ対応・非HTTPS環境警告付き）
+  // 音声入力
   // ============================================================
   (function setupVoiceInput() {
     var micBtn = document.getElementById("mic-btn");
@@ -422,7 +420,6 @@
     }
 
     micBtn.onclick = function() {
-      // 【チェック】スマホ等で HTTP 接続の場合、マイク権限のダイアログが出ない制限への対話的フィードバック
       if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") {
         showInAppToast("セキュリティ制限", "音声認識は HTTPS 環境（https://...）でのみ動作します。");
         return;
@@ -471,6 +468,12 @@
       try {
         var referenceDate = getCurrentModalDateKey();
         var parsed = await callAI("parse_text", { text: text, referenceDate: referenceDate });
+        
+        // ★修正: AIが日付を返さなかった場合は、今開いているモーダルの日付で補完する
+        if (parsed && !parsed.date) {
+            parsed.date = referenceDate;
+        }
+
         await handleAiParsedResult(parsed);
       } catch (e) {
         showInlineNote(eventTitleInput.closest(".form-group"), e.message, true);
@@ -684,9 +687,19 @@
       try {
         var todayNow = new Date();
         var todayKeyForAI = window.App.formatDate(todayNow.getFullYear(), todayNow.getMonth(), todayNow.getDate());
+        
         var parsed = await callAI("parse_text", { text: text, referenceDate: todayKeyForAI });
         console.log("[AIで予定を追加] 解析結果:", parsed);
-        if (!parsed || !parsed.date) throw new Error("日付を認識できませんでした。もう少し具体的に入力してください。");
+
+        // ★修正: AIが日付を null で返してきた場合の救済措置（今日の日付を補完する）
+        if (parsed && !parsed.date) {
+            parsed.date = todayKeyForAI;
+        }
+
+        // タイトルすら取れなかった場合のみエラーにする
+        if (!parsed || !parsed.title) {
+            throw new Error("予定を読み取れませんでした。もう少し具体的に入力してください。");
+        }
 
         var parts = parsed.date.split("-").map(Number);
         window.App.currentYear = parts[0];
