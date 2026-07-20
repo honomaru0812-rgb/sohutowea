@@ -144,6 +144,12 @@
     }
 
     var data = result.data;
+    console.log("[callAI] action=" + action + " 生レスポンス:", data);
+
+    // Edge Function がエラーJSON（{ error: "..." }）を200で返すケースもあるので拾う
+    if (data && data.error) {
+      throw new Error(String(data.error));
+    }
 
     if (action === "parse_text" && data && Array.isArray(data.events)) {
       return data.events[0] || { title: "", date: null, startH: null, startM: null, endH: null, endM: null, tag: "" };
@@ -741,8 +747,11 @@
       submitBtn.textContent = "解析中...";
 
       try {
-        var parsed = await callAI("parse_text", { text: text });
-        if (!parsed.date) throw new Error("日付を認識できませんでした。もう少し具体的に入力してください。");
+        var todayNow = new Date();
+        var todayKeyForAI = window.App.formatDate(todayNow.getFullYear(), todayNow.getMonth(), todayNow.getDate());
+        var parsed = await callAI("parse_text", { text: text, referenceDate: todayKeyForAI });
+        console.log("[AIで予定を追加] 解析結果:", parsed);
+        if (!parsed || !parsed.date) throw new Error("日付を認識できませんでした。もう少し具体的に入力してください。");
 
         var parts = parsed.date.split("-").map(Number);
         window.App.currentYear = parts[0];

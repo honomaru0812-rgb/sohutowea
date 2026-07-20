@@ -36,7 +36,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const MODEL = "gemini-2.0-flash"; // 軽量・無料枠あり。精度が足りなければ gemini-2.5-flash に変更可
+const MODEL = "gemini-3.1-flash-lite"; // 軽量・無料枠あり。精度が足りなければ gemini-2.5-flash に変更可
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
