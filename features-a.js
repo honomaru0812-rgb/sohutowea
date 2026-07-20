@@ -110,6 +110,32 @@
   });
 
   // ============================================================
+  // カレンダーの該当日にジャンプする（検索結果・一覧の両方から使用）
+  // ============================================================
+  function jumpToCalendarDate(dateKey) {
+    var parts = dateKey.split("-").map(Number);
+    window.App.currentYear = parts[0];
+    window.App.currentMonth = parts[1] - 1;
+    if (window.App.renderCalendar) window.App.renderCalendar();
+
+    // 「カレンダー」タブに切り替え
+    var calTab = document.getElementById("tab-calendar");
+    if (calTab) calTab.click();
+
+    // タブ切り替え・再描画の完了を待ってからハイライト
+    setTimeout(function() {
+      var cell = document.querySelector('.day-cell[data-date="' + dateKey + '"]');
+      if (!cell) return;
+      cell.scrollIntoView({ behavior: "smooth", block: "center" });
+      cell.style.transition = "box-shadow 0.3s";
+      cell.style.boxShadow = "0 0 0 3px #4A7BF7";
+      setTimeout(function() { cell.style.boxShadow = ""; }, 1600);
+    }, 50);
+  }
+
+  window.App.jumpToCalendarDate = jumpToCalendarDate;
+
+  // ============================================================
   // 検索機能
   // ============================================================
   var searchInput = document.getElementById("search-input");
@@ -207,7 +233,26 @@
 
     if (evt.tag) applyTagStyle(div.querySelector(".event-list-tag"), evt.tag);
 
-    // クリックで編集モーダルを開く
+    // 「カレンダーで見る」ボタン（その日のカレンダー表示にジャンプする）
+    var jumpBtn = document.createElement("button");
+    jumpBtn.type = "button";
+    jumpBtn.title = "カレンダーでこの日を見る";
+    jumpBtn.textContent = "📅";
+    jumpBtn.style.border = "none";
+    jumpBtn.style.background = "#f0f0f0";
+    jumpBtn.style.borderRadius = "6px";
+    jumpBtn.style.width = "30px";
+    jumpBtn.style.height = "30px";
+    jumpBtn.style.fontSize = "14px";
+    jumpBtn.style.cursor = "pointer";
+    jumpBtn.style.flexShrink = "0";
+    jumpBtn.onclick = function(ev) {
+      ev.stopPropagation(); // 親要素の編集モーダルが開かないようにする
+      jumpToCalendarDate(dateKey);
+    };
+    div.appendChild(jumpBtn);
+
+    // クリックで編集モーダルを開く（ジャンプボタン以外の部分）
     div.style.cursor = "pointer";
     div.onclick = function() {
       if (window.App.openModal) window.App.openModal(dateKey, evt);
