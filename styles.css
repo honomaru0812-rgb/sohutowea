@@ -34,6 +34,7 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh; /* ★追加: スマホのアドレスバー分の誤差を吸収 */
   padding: 20px;
 }
 
@@ -47,7 +48,7 @@ body {
   text-align: center;
 }
 
-.login-box h1 { font-size: 22px; margin-bottom: 6px; }
+.login-box h1 { font-size: clamp(18px, 4vw, 22px); margin-bottom: 6px; } /* ★clamp化 */
 .login-box p  { font-size: 14px; color: #888; margin-bottom: 24px; }
 
 /* フォーム部品 */
@@ -172,8 +173,12 @@ right:-300px;
 width:280px;
 
 height:100vh;
+height:100dvh; /* ★追加: 動的ビューポート対応 */
 
 padding:24px;
+/* ★追加: iPhoneノッチ・ホームバー(セーフエリア)対応 */
+padding-top: max(24px, env(safe-area-inset-top));
+padding-bottom: max(24px, env(safe-area-inset-bottom));
 
 background:#fff;
 
@@ -186,6 +191,8 @@ z-index:999;
 display:flex;
 
 flex-direction:column;
+
+overflow-y:auto; /* ★追加: 低い画面でメニューが多い場合にスクロール可能に */
 
 }
 
@@ -354,6 +361,7 @@ text-align:center;
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
+  flex-wrap: wrap; /* ★追加: 幅が狭い時に折り返し可能に */
 }
 
 .cal-nav button {
@@ -366,14 +374,14 @@ text-align:center;
 .cal-nav button:hover { background: #f0f0f0; }
 
 .cal-nav h2 {
-  font-size: 18px;
+  font-size: clamp(15px, 3vw, 18px); /* ★clamp化 */
   min-width: 140px;
   text-align: center;
 }
 
 .btn-today {
   font-size: 12px; padding: 6px 30px;
-  background: #4A7BF7; color: #080808;
+  background: #4A7BF7; color: #fff; /* ★修正: #080808(ほぼ黒) → #fff。青背景に対して視認性がなかったバグ */
   border: none; border-radius: 6px;
   cursor: pointer; font-weight: 600;
   white-space: nowrap;  /* 改行させない */
@@ -456,6 +464,7 @@ text-align:center;
   display: flex;
   gap: 10px;
   padding: 16px 20px;
+  flex-wrap: wrap; /* ★追加 */
 }
 
 .list-controls select {
@@ -468,6 +477,7 @@ text-align:center;
 
 .event-list {
   padding: 0 20px 20px;
+  container-type: inline-size; /* ★追加: コンテナクエリで子要素を制御するため */
 }
 
 .event-list-item {
@@ -490,7 +500,7 @@ text-align:center;
 
 .event-list-icon { font-size: 20px; }
 
-.event-list-info { flex: 1; }
+.event-list-info { flex: 1; min-width: 0; } /* ★min-width:0 追加でテキスト省略が正しく効くように */
 
 .event-list-title {
   font-size: 14px;
@@ -508,6 +518,16 @@ text-align:center;
   border-radius: 10px;
   background: #e8f0fe;
   color: #4A7BF7;
+}
+
+/* ★追加: 親要素(.event-list)の幅が350px未満になったら縦積みに */
+@container (max-width: 350px) {
+  .event-list-item {
+    flex-wrap: wrap;
+  }
+  .event-list-tag {
+    margin-left: 32px; /* アイコン分インデント */
+  }
 }
 
 /* ============================
@@ -532,8 +552,8 @@ text-align:center;
 .modal h2 { font-size: 18px; margin-bottom: 2px; }
 .modal .modal-date { font-size: 13px; color: #888; margin-bottom: 16px; }
 
-.time-row { display: flex; gap: 12px; }
-.time-row > div { flex: 1; }
+.time-row { display: flex; gap: 12px; flex-wrap: wrap; } /* ★flex-wrap追加 */
+.time-row > div { flex: 1; min-width: 120px; } /* ★min-width追加: 狭い画面で潰れすぎないように */
 
 .time-row select {
   padding: 8px 4px; font-size: 14px;
@@ -547,7 +567,7 @@ text-align:center;
   gap: 6px;
 }
 
-.input-with-mic input { flex: 1; }
+.input-with-mic input { flex: 1; min-width: 0; } /* ★min-width:0追加 */
 
 .btn-mic {
   width: 40px; height: 40px;
@@ -555,6 +575,7 @@ text-align:center;
   border: none; border-radius: 8px;
   cursor: pointer;
   transition: background 0.2s;
+  flex-shrink: 0; /* ★追加: 潰れて見切れないように */
 }
 
 .btn-mic:hover { background: #e0e0e0; }
@@ -566,7 +587,7 @@ text-align:center;
 }
 
 /* カラーピッカー */
-.color-picker { display: flex; gap: 8px; margin-top: 4px; }
+.color-picker { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; } /* ★flex-wrap追加 */
 
 .color-dot {
   width: 28px; height: 28px; border-radius: 50%;
@@ -598,12 +619,13 @@ text-align:center;
 }
 
 /* モーダルボタン */
-.modal-buttons { display: flex; gap: 8px; margin-top: 20px; }
+.modal-buttons { display: flex; gap: 8px; margin-top: 20px; flex-wrap: wrap; } /* ★flex-wrap追加 */
 
 .modal-buttons button {
   flex: 1; padding: 10px; font-size: 13px;
   font-weight: 500; border: none; border-radius: 8px;
   cursor: pointer; transition: background 0.2s;
+  min-width: 90px; /* ★追加: 3つ並んだ時に潰れすぎないように */
 }
 
 .btn-save   { background: #4A7BF7; color: #fff; }
@@ -611,9 +633,26 @@ text-align:center;
 .btn-delete { background: #fee; color: #c0392b; }
 .btn-cancel { background: #f0f0f0; color: #333; }
 
-/* ============================
-   スマホ対応（画面幅600px以下）
-============================ */
+/* ============================================================
+   ★追加: レスポンシブ対応（幅・高さ・向き）
+   ============================================================ */
+
+/* ---- PC・大画面（1025px〜）: 中央寄せして間延びを防ぐ ---- */
+@media (min-width: 1025px) {
+  #app-screen,
+  .app-container {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+}
+
+/* ---- タブレット（481px〜768px） ---- */
+@media (min-width: 481px) and (max-width: 768px) {
+  .cal-nav h2 { min-width: 100px; }
+  .modal { max-width: 480px; }
+}
+
+/* ---- スマホ（〜600px）※既存を維持しつつ整理 ---- */
 @media (max-width: 600px) {
   .header { flex-direction: row; align-items: center; }
   .search-input { width: 100%; }
@@ -621,4 +660,34 @@ text-align:center;
   .day-number { font-size: 11px; }
   .event-chip { font-size: 9px; }
   .modal { padding: 20px 16px; }
+}
+
+/* ---- 極小スマホ（〜360px） ---- */
+@media (max-width: 360px) {
+  .login-box { padding: 28px 20px; }
+  .view-tab { padding: 8px 14px; font-size: 12px; }
+  .btn-today { padding: 6px 16px; }
+}
+
+/* ---- ★追加: 横向き・画面が低い場合（横持ちスマホ、キーボード表示時など） ---- */
+@media (max-height: 500px) {
+  #login-screen { align-items: flex-start; padding-top: 12px; }
+  .login-box { padding: 16px; }
+  .modal { max-height: 85vh; padding: 16px; }
+  .drawer-header { padding-bottom: 10px; margin-bottom: 10px; }
+  .avatar { width: 44px; height: 44px; font-size: 20px; margin-bottom: 6px; }
+  .cal-nav { padding: 8px 20px; }
+  .day-cell { min-height: 36px; }
+}
+
+/* ---- ★追加: 横向き固定（orientation指定） ---- */
+@media (orientation: landscape) and (max-width: 900px) {
+  .cal-grid .day-cell { min-height: 42px; }
+  .view-tabs { padding: 8px 20px 0; }
+}
+
+/* ---- ★追加: タッチデバイスではhoverの代わりにactiveを効かせる ---- */
+@media (hover: none) {
+  .day-cell:active { background: #f0f4ff; }
+  .event-list-item:active { background: #f0f4ff; }
 }
