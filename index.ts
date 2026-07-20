@@ -6,7 +6,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 // ★ 修正: 確実に動作する安定版のモデル名に変更
-const MODEL = "gemini-1.5-flash"; 
+const MODEL = "gemini-3.1-flash-lite"; 
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
