@@ -372,10 +372,17 @@ text-align:center;
 }
 
 .btn-today {
-  font-size: 12px; padding: 6px 14px;
-  background: #4A7BF7; color: #fff;
+  font-size: 12px; padding: 6px 30px;
+  background: #4A7BF7; color: #080808;
   border: none; border-radius: 6px;
   cursor: pointer; font-weight: 600;
+  white-space: nowrap;  /* 改行させない */
+  flex-shrink: 0; 
+
+  /* 中央揃え用 */
+  display: flex;
+  align-items: center;  /* 縦方向の中央揃え */
+  justify-content: center;  /* 横方向の中央揃え */
 }
 
 /* 曜日ヘッダー */
