@@ -4,8 +4,8 @@
    【担当する機能】
    ・リマインド（通知）機能
    ・AI機能（予定の提案、自然言語入力など）
-   ・音声入力
-   ・画像認識（画像から予定を読み取る）
+   ・音声入力（認識後に自動でAI解析し、日付・時間も自動反映）
+   ・画像認識（画像から予定を読み取る。複数予定があれば全部処理）
    ・他アプリとの連携（.ics エクスポート）
 
    【AI呼び出しについて】
@@ -123,6 +123,14 @@
   // AI呼び出し共通ヘルパー（Edge Function経由）
   // ============================================================
   // action: "parse_text" | "parse_image"
+  //
+  // Edge Function（index.ts）は { events: [...] } という配列形式で返す
+  // （画像内に複数の予定がある場合に対応するため）。
+  // parse_text の呼び出し元（音声入力・🤖ボタン・AIでサッと追加）は
+  // これまで通り単一のイベントオブジェクトとして扱いたいので、
+  // ここで events[0] に正規化しておく。
+  // parse_image はここでは正規化せず、呼び出し側（複数件をループ処理する部分）に
+  // そのまま events 配列を渡す。
   async function callAI(action, extra) {
     if (USE_MOCK_AI) {
       return mockAI(action, extra || {});
@@ -134,7 +142,28 @@
       console.error("AI呼び出しエラー:", result.error);
       throw new Error("AI機能の呼び出しに失敗しました。Edge Function 'ai-assist' がデプロイされているか確認してください（SETUP-AI.md参照）。");
     }
-    return result.data;
+
+    var data = result.data;
+
+    if (action === "parse_text" && data && Array.isArray(data.events)) {
+      return data.events[0] || { title: "", date: null, startH: null, startM: null, endH: null, endM: null, tag: "" };
+    }
+
+    return data;
+  }
+
+  // 通信エラー等で失敗した場合に少し待って自動で1回だけ再試行するラッパー。
+  // 「画像がたまに読み取れない」問題の多くは一時的な通信エラーなので、
+  // 自動リトライで体感の成功率を上げる。
+  async function callAIWithRetry(action, extra, retries) {
+    retries = typeof retries === "number" ? retries : 1;
+    try {
+      return await callAI(action, extra);
+    } catch (e) {
+      if (retries <= 0) throw e;
+      await sleep(800);
+      return callAIWithRetry(action, extra, retries - 1);
+    }
   }
 
   // 現在開いているモーダルの日付（YYYY-MM-DD）を取得
@@ -184,6 +213,65 @@
       if (diff < minDiff) { minDiff = diff; closest = s; }
     });
     return closest;
+  }
+
+  // 現在モーダルで編集中の予定（新規追加なら null）
+  // 音声入力・AI解析の結果、日付を移動してよいかどうかの判定に使う
+  var currentModalEvent = null;
+  window.App.onModalOpen.push(function(dateKey, event) {
+    currentModalEvent = event || null;
+  });
+
+  // 指定した年月にカレンダーを移動する
+  function navigateCalendarToDate(dateKey) {
+    var parts = dateKey.split("-").map(Number);
+    window.App.currentYear = parts[0];
+    window.App.currentMonth = parts[1] - 1;
+    window.App.renderCalendar();
+  }
+
+  // 指定した日付の「新規予定追加」モーダルを開く（該当日のセルをクリックする）
+  function openAddModalForDate(dateKey) {
+    navigateCalendarToDate(dateKey);
+    var cell = document.querySelector('.day-cell[data-date="' + dateKey + '"]');
+    if (cell) {
+      cell.click(); // main.js の openModal(dateKey, null)
+      return true;
+    }
+    return false;
+  }
+
+  // AIの解析結果（parse_text）をモーダルに反映する共通処理。
+  // ・新規追加中に、話した/入力した日付が今のモーダルの日付と違う場合は
+  //   該当日のモーダルを開き直してから反映する
+  // ・既存の予定を編集中の場合は、日付は動かさず注意だけ表示する
+  //   （編集中の予定を音声だけで別日に動かすのは事故のもとなので）
+  async function handleAiParsedResult(parsed) {
+    var referenceDate = getCurrentModalDateKey();
+    var titleInput = document.getElementById("event-title");
+
+    if (parsed.date && referenceDate && parsed.date !== referenceDate) {
+      if (!currentModalEvent) {
+        var moved = openAddModalForDate(parsed.date);
+        if (moved) {
+          await sleep(150); // モーダルの再描画を待つ
+          applyParsedEventToModal(parsed);
+          return;
+        }
+      } else {
+        applyParsedEventToModal(parsed);
+        if (titleInput) {
+          showInlineNote(
+            titleInput.closest(".form-group"),
+            "AIは日付「" + parsed.date + "」を検出しましたが、編集中の予定の日付（" + referenceDate + "）は変更されません。",
+            false
+          );
+        }
+        return;
+      }
+    }
+
+    applyParsedEventToModal(parsed);
   }
 
   function showInlineNote(afterEl, text, isWarning) {
@@ -315,6 +403,7 @@
 
     var recognition = null;
     var isRecording = false;
+    var lastRecognizedText = "";
 
     function createRecognition() {
       var r = new SpeechRecognition();
@@ -324,12 +413,40 @@
 
       r.onresult = function(e) {
         var text = e.results[0][0].transcript;
-        eventTitleInput.value = text;
+        eventTitleInput.value = text; // まずは認識結果をそのまま表示
+        lastRecognizedText = text;
       };
       r.onend = function() {
         isRecording = false;
         micBtn.classList.remove("recording");
         micBtn.textContent = "🎤";
+
+        // 認識できたテキストがあれば、AIで日付・時間・タイトルを自動解析する
+        // 例：「17日にミーティング」→ 17日の予定として自動で日付・タイトルを設定
+        var text = lastRecognizedText;
+        lastRecognizedText = "";
+        if (text) {
+          micBtn.disabled = true;
+          var originalIcon = micBtn.textContent;
+          micBtn.textContent = "⏳";
+          callAI("parse_text", { text: text, referenceDate: getCurrentModalDateKey() })
+            .then(function(parsed) {
+              return handleAiParsedResult(parsed);
+            })
+            .catch(function(e) {
+              console.error("音声のAI解析に失敗:", e);
+              // 解析に失敗しても、認識したテキスト自体はタイトル欄に残っているのでそのまま使える
+              showInlineNote(
+                eventTitleInput.closest(".form-group"),
+                "日時の自動解析に失敗しました。タイトルは認識結果のまま反映されています。",
+                true
+              );
+            })
+            .finally(function() {
+              micBtn.disabled = false;
+              micBtn.textContent = originalIcon;
+            });
+        }
       };
       r.onerror = function(e) {
         console.error("音声認識エラー:", e.error);
@@ -388,15 +505,7 @@
       try {
         var referenceDate = getCurrentModalDateKey();
         var parsed = await callAI("parse_text", { text: text, referenceDate: referenceDate });
-        applyParsedEventToModal(parsed);
-
-        if (parsed.date && referenceDate && parsed.date !== referenceDate) {
-          showInlineNote(
-            document.getElementById("event-title").closest(".form-group"),
-            "AIは日付「" + parsed.date + "」を検出しましたが、このモーダルの日付は " + referenceDate + " のままです。日付を変えたい場合は一度キャンセルして該当日をクリックしてください。",
-            false
-          );
-        }
+        await handleAiParsedResult(parsed);
       } catch (e) {
         showInlineNote(eventTitleInput.closest(".form-group"), e.message, true);
       } finally {
@@ -473,14 +582,14 @@
           var referenceDate = getCurrentModalDateKey();
 
           imageResult.textContent = "AI分析中...";
-          
-          var parsed = await callAI("parse_image", {
+
+          var parsed = await callAIWithRetry("parse_image", {
             image: base64,
             mediaType: "image/jpeg",
             referenceDate: referenceDate,
             // 複数予定を配列で返すよう指示を追加
             instruction: "画像内に複数の予定がある場合は、それらすべてを配列形式で返してください。"
-          });
+          }, 1);
 
           // AIの返答がオブジェクトか配列か揺れても対応できるようにする
           var eventsToProcess = [];
@@ -503,47 +612,75 @@
           if (cancelBtn) cancelBtn.click();
           await new Promise(function(res) { setTimeout(res, 300); }); // アニメーション待ち
 
-          // 順番にモーダルを開いてユーザーの確認を待つ
-          for (var i = 0; i < eventsToProcess.length; i++) {
-            var evData = eventsToProcess[i];
-            var targetDate = evData.date || referenceDate;
-            if (!targetDate) continue;
-
-            // 該当年月にカレンダーを移動
-            var parts = targetDate.split("-").map(Number);
-            window.App.currentYear = parts[0];
-            window.App.currentMonth = parts[1] - 1;
-            window.App.renderCalendar();
-
-            // 該当日のセルをクリックして新規追加モーダルを開く
-            var cell = document.querySelector('.day-cell[data-date="' + targetDate + '"]');
-            if (cell) {
-              cell.click();
-
-              // モーダルの入力欄にAIの解析結果をセット（自動保存はしない）
-              applyParsedEventToModal(evData);
-
-              // ユーザーが分かりやすいようにモーダルのタイトルを変更
-              var modalTitle = document.getElementById("modal-title");
-              if (modalTitle) {
-                modalTitle.textContent = "画像からの予定確認 (" + (i + 1) + "/" + eventsToProcess.length + ")";
-              }
-              
-              var currentResult = document.getElementById("image-result");
-              if (currentResult) {
-                currentResult.textContent = "内容を確認して「保存」を押してください。";
-              }
-
-              // ここで処理を一時停止し、ユーザーが保存かキャンセルを押すのを待つ
-              await waitForUserAction();
-              
-              // 次の予定のモーダルを開く前にUIのちらつきを防止
-              await new Promise(function(res) { setTimeout(res, 300); });
-            }
+          // 2件以上検出した場合は「まとめて追加」か「1件ずつ確認」かを選んでもらう
+          var bulkAdd = false;
+          if (eventsToProcess.length > 1) {
+            bulkAdd = confirm(
+              "画像から " + eventsToProcess.length + " 件の予定を検出しました。\n" +
+              "OK：内容を確認せずに全部まとめて追加する\n" +
+              "キャンセル：1件ずつ内容を確認しながら追加する"
+            );
           }
 
-          // 全てのループが終わったら通知
-          if (typeof showInAppToast === "function") {
+          if (bulkAdd) {
+            // まとめて追加（.icsインポートと同じ仕組みを流用）
+            var addedCount = 0;
+            for (var b = 0; b < eventsToProcess.length; b++) {
+              var bd = eventsToProcess[b];
+              var bdDate = bd.date || referenceDate;
+              if (!bdDate) continue;
+              try {
+                var added = await addOneImportedEvent({
+                  dateKey: bdDate,
+                  title: bd.title || "（タイトルなし）",
+                  startH: bd.startH, startM: bd.startM,
+                  endH: bd.endH, endM: bd.endM,
+                  tag: bd.tag,
+                });
+                if (added) addedCount++;
+              } catch (e) {
+                console.error("画像からの一括追加中にエラー:", bd, e);
+              }
+            }
+            showInAppToast("追加完了", eventsToProcess.length + "件中 " + addedCount + "件を追加しました。");
+          } else {
+            // 順番にモーダルを開いてユーザーの確認を待つ
+            for (var i = 0; i < eventsToProcess.length; i++) {
+              var evData = eventsToProcess[i];
+              var targetDate = evData.date || referenceDate;
+              if (!targetDate) continue;
+
+              // 該当年月にカレンダーを移動
+              navigateCalendarToDate(targetDate);
+
+              // 該当日のセルをクリックして新規追加モーダルを開く
+              var cell = document.querySelector('.day-cell[data-date="' + targetDate + '"]');
+              if (cell) {
+                cell.click();
+
+                // モーダルの入力欄にAIの解析結果をセット（自動保存はしない）
+                applyParsedEventToModal(evData);
+
+                // ユーザーが分かりやすいようにモーダルのタイトルを変更
+                var modalTitle = document.getElementById("modal-title");
+                if (modalTitle) {
+                  modalTitle.textContent = "画像からの予定確認 (" + (i + 1) + "/" + eventsToProcess.length + ")";
+                }
+
+                var currentResult = document.getElementById("image-result");
+                if (currentResult) {
+                  currentResult.textContent = "内容を確認して「保存」を押してください。";
+                }
+
+                // ここで処理を一時停止し、ユーザーが保存かキャンセルを押すのを待つ
+                await waitForUserAction();
+
+                // 次の予定のモーダルを開く前にUIのちらつきを防止
+                await new Promise(function(res) { setTimeout(res, 300); });
+              }
+            }
+
+            // 全てのループが終わったら通知
             showInAppToast("確認完了", "すべての予定の確認が終わりました。");
           }
 
